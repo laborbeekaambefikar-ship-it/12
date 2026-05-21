@@ -66,11 +66,11 @@ for the Award of the Degree of\par}
 \vspace{1cm}
 {\large Under the Guidance of:\par}
 \vspace{0.3cm}
-{\large [Supervisor Name]\\Designation, Department of Mechanical Engineering\\
+{\large [Supervisor Name]\\{}Designation, Department of Mechanical Engineering\\{}%
 [University Name]\par}
 \vspace{1cm}
-{\large Department of Mechanical Engineering\\
-[University Name]\\
+{\large Department of Mechanical Engineering\\{}%
+[University Name]\\{}%
 Academic Year 2024--2025\par}
 \end{titlepage}
 
@@ -911,7 +911,7 @@ The stop condition is $|\theta_{target} - \theta_{current}| < 3^{\circ}$. Theore
 
 The bang-bang control strategy was selected over smoother alternatives (trapezoidal velocity profile, S-curve profile) for the following engineering reasons: (1) simplicity---the controller requires only a constant velocity command and a heading comparison, with no trajectory generation computation; (2) time-optimality---bang-bang control is the time-optimal solution for minimum-time rotation under the constraint of bounded angular velocity; (3) adequacy---the $\pm 3^{\circ}$ accuracy achieved is sufficient for the subsequent line-following phase to recapture the line after the turn; and (4) IMU accuracy margin---the BNO055's $\pm 0.5^{\circ}$ heading accuracy provides 6$\times$ margin below the $3^{\circ}$ termination tolerance, ensuring reliable turn completion.
 
-The potential limitation of bang-bang control is heading overshoot due to system inertia: the robot continues rotating briefly after the stop command due to angular momentum. With $I_{zz} = 0.03177$~kg$\cdot$m$^2$ and $\omega = 0.4$~rad/s, the angular momentum at the stop instant is $L = I_{zz} \times \omega = 0.0127$~kg$\cdot$m$^2$/s. The braking torque from wheel friction ($\mu = 0.5$, $F_N = mg/2 = 12.26$~N per wheel, moment arm $L/2 = 0.15$~m) provides $\tau_{brake} = 2 \times \mu F_N \times L/2 = 1.84$~N$\cdot$m. The deceleration time is $t_{dec} = L_{angular}/\tau_{brake} = 0.0127/1.84 = 6.9$~ms, during which the heading changes by $\Delta\theta_{overshoot} = \omega \times t_{dec}/2 = 0.4 \times 0.0069/2 = 0.0014$~rad = 0.08^{\circ}$. This overshoot is negligible compared to the $3^{\circ}$ tolerance, confirming that bang-bang control is appropriate for this system's inertia characteristics.
+The potential limitation of bang-bang control is heading overshoot due to system inertia: the robot continues rotating briefly after the stop command due to angular momentum. With $I_{zz} = 0.03177$~kg$\cdot$m$^2$ and $\omega = 0.4$~rad/s, the angular momentum at the stop instant is $L = I_{zz} \times \omega = 0.0127$~kg$\cdot$m$^2$/s. The braking torque from wheel friction ($\mu = 0.5$, $F_N = mg/2 = 12.26$~N per wheel, moment arm $L/2 = 0.15$~m) provides $\tau_{brake} = 2 \times \mu F_N \times L/2 = 1.84$~N$\cdot$m. The deceleration time is $t_{dec} = L_{angular}/\tau_{brake} = 0.0127/1.84 = 6.9$~ms, during which the heading changes by $\Delta\theta_{overshoot} = \omega \times t_{dec}/2 = 0.4 \times 0.0069/2 = 0.0014$~rad = $0.08^{\circ}$. This overshoot is negligible compared to the $3^{\circ}$ tolerance, confirming that bang-bang control is appropriate for this system's inertia characteristics.
 
 \subsection{Motor Velocity PID}
 
