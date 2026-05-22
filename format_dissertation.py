@@ -7,9 +7,12 @@ applying the dissertation formatting guidelines:
   - Main headings: 14 pt bold, left aligned, 12 pt before & after
   - Sub-headings: 12 pt bold, left aligned
   - Figure / Table captions: 12 pt bold, centered, 12 pt above & below
+  - Figures and tables renumbered consecutively (Fig. 1, Fig. 2 ...
+    and Table 1, Table 2 ...) and all in-text references updated.
 
 Strategy: run pdf2docx first to get text + tables + images in reading
-order, then walk the produced document and rewrite styling per spec.
+order, walk the produced document and rewrite styling per spec, then
+walk it again to renumber figures/tables and rewrite references.
 """
 
 import re
@@ -27,7 +30,7 @@ DOCX_FILE = '/projects/sandbox/12/Dissertation_Arbaz.docx'
 # ---------------------------------------------------------------------------
 # Step 1: fresh pdf2docx conversion
 # ---------------------------------------------------------------------------
-print('[1/3] Converting PDF to DOCX (pdf2docx)...')
+print('[1/4] Converting PDF to DOCX (pdf2docx)...')
 cv = Converter(PDF_FILE)
 cv.convert(DOCX_FILE, start=0, end=None)
 cv.close()
@@ -184,7 +187,7 @@ def style_table_cell_paragraph(p):
 # ---------------------------------------------------------------------------
 # Step 3: open, restyle, save
 # ---------------------------------------------------------------------------
-print('[2/3] Restyling document per dissertation guidelines...')
+print('[2/4] Restyling document per dissertation guidelines...')
 
 doc = Document(DOCX_FILE)
 
@@ -333,8 +336,187 @@ except Exception as e:
 
 doc.save(DOCX_FILE)
 
-# ---- Quick stats ----
-print('[3/3] Done.')
+
+# ---------------------------------------------------------------------------
+# Step 4: renumber figures and tables sequentially, update references
+# ---------------------------------------------------------------------------
+print('[3/4] Renumbering figures and tables sequentially...')
+
+doc = Document(DOCX_FILE)
+
+# Strict patterns: caption requires ":" after the number to avoid false positives
+# (e.g. "Table 4.3 compares ..." should not be treated as a caption).
+STRICT_CAP_FIG_RE = re.compile(r'^Figure\s+(\d+(?:\.\d+)*)\s*:', re.IGNORECASE)
+STRICT_CAP_TBL_RE = re.compile(r'^Table\s+(\d+(?:\.\d+)*)\s*:', re.IGNORECASE)
+# LoF / LoT entries: starts with "Figure N" / "Table N" plus title text and dots
+LOF_RE = re.compile(r'^Figure\s+(\d+(?:\.\d+)*)\s+', re.IGNORECASE)
+LOT_RE = re.compile(r'^Table\s+(\d+(?:\.\d+)*)\s+', re.IGNORECASE)
+
+
+def all_paragraphs(doc):
+    """Yield every paragraph, including those inside table cells."""
+    for p in doc.paragraphs:
+        yield p
+    for tbl in doc.tables:
+        for row in tbl.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    yield p
+
+
+# ---- Pass 1: build mapping by walking the document in order ----
+fig_map = {}     # old_number_string -> new_number_int
+tbl_map = {}
+fig_count = 0
+tbl_count = 0
+
+# Figures: use real captions and LoF entries as sources of truth.
+# Tables: use real captions (no LoT entries with leader-dots in this PDF).
+for p in doc.paragraphs:
+    text = p.text.strip()
+    if not text:
+        continue
+
+    # Real caption (has ":")
+    m = STRICT_CAP_FIG_RE.match(text)
+    if m:
+        old = m.group(1)
+        if old not in fig_map:
+            fig_count += 1
+            fig_map[old] = fig_count
+        continue
+
+    m = STRICT_CAP_TBL_RE.match(text)
+    if m:
+        old = m.group(1)
+        if old not in tbl_map:
+            tbl_count += 1
+            tbl_map[old] = tbl_count
+        continue
+
+    # LoF / LoT entry (must have leader dots to count)
+    if is_toc_entry(text):
+        m = LOF_RE.match(text)
+        if m:
+            old = m.group(1)
+            if old not in fig_map:
+                fig_count += 1
+                fig_map[old] = fig_count
+            continue
+        m = LOT_RE.match(text)
+        if m:
+            old = m.group(1)
+            if old not in tbl_map:
+                tbl_count += 1
+                tbl_map[old] = tbl_count
+            continue
+
+
+def add_parent_aliases(mapping):
+    """If mapping has '5.10.1' and '5.10.2', also add '5.10' -> first child.
+
+    Skip single-segment parents (e.g. '5' or '3') because they could match
+    chapter/section numbers in body text.
+    """
+    aliases = {}
+    for k, v in list(mapping.items()):
+        parts = k.split('.')
+        # Only intermediate parents with at least one dot are useful
+        for cut in range(2, len(parts)):
+            parent = '.'.join(parts[:cut])
+            if parent in mapping:
+                continue
+            if parent not in aliases or v < aliases[parent]:
+                aliases[parent] = v
+    mapping.update(aliases)
+
+
+add_parent_aliases(fig_map)
+add_parent_aliases(tbl_map)
+
+print(f'      Figure mapping ({len(fig_map)} entries incl. parent aliases):')
+for k, v in sorted(fig_map.items(), key=lambda kv: (-len(kv[0]), kv[0])):
+    print(f'         {k:>8} -> Fig. {v}')
+print(f'      Table mapping ({len(tbl_map)} entries):')
+for k, v in sorted(tbl_map.items(), key=lambda kv: (-len(kv[0]), kv[0])):
+    print(f'         {k:>8} -> Table {v}')
+
+
+# ---- Pass 2: apply replacements ----
+def remap_text(text, in_caption_or_toc):
+    """Return text with all figure/table number references remapped.
+
+    Captions / LoF / LoT entries: keep "Figure"/"Table" prefix.
+    Body text: convert "Figure"/"Fig." references to "Fig." with the new number.
+    """
+    fig_keys = sorted(fig_map.keys(), key=lambda k: -len(k))
+    tbl_keys = sorted(tbl_map.keys(), key=lambda k: -len(k))
+
+    for old in fig_keys:
+        new = fig_map[old]
+        old_esc = re.escape(old)
+        if in_caption_or_toc:
+            text = re.sub(
+                r'\bFigure\s+' + old_esc + r'(?!\d|\.\d)',
+                f'Figure {new}', text, flags=re.IGNORECASE)
+            text = re.sub(
+                r'\bFig\.\s+' + old_esc + r'(?!\d|\.\d)',
+                f'Figure {new}', text, flags=re.IGNORECASE)
+        else:
+            text = re.sub(
+                r'\b(?:Figure|Fig\.)\s+' + old_esc + r'(?!\d|\.\d)',
+                f'Fig. {new}', text, flags=re.IGNORECASE)
+
+    for old in tbl_keys:
+        new = tbl_map[old]
+        old_esc = re.escape(old)
+        text = re.sub(
+            r'\bTable\s+' + old_esc + r'(?!\d|\.\d)',
+            f'Table {new}', text, flags=re.IGNORECASE)
+
+    return text
+
+
+def is_caption_or_toc_para(text):
+    if STRICT_CAP_FIG_RE.match(text) or STRICT_CAP_TBL_RE.match(text):
+        return True
+    if is_toc_entry(text) and (LOF_RE.match(text) or LOT_RE.match(text)):
+        return True
+    return False
+
+
+def remap_paragraph(p):
+    text_full = p.text
+    in_cot = is_caption_or_toc_para(text_full.strip())
+
+    # Try per-run replacement first (preserves formatting)
+    for r in p.runs:
+        new_t = remap_text(r.text, in_cot)
+        if new_t != r.text:
+            r.text = new_t
+
+    # Fallback: if joined text still doesn't match what we'd expect
+    # (because a number was split across runs), rewrite the whole paragraph
+    # text in the first run.
+    expected = remap_text(text_full, in_cot)
+    actual = ''.join(r.text for r in p.runs)
+    if expected != actual:
+        if p.runs:
+            p.runs[0].text = expected
+            for r in p.runs[1:]:
+                r.text = ''
+
+
+for p in all_paragraphs(doc):
+    remap_paragraph(p)
+
+doc.save(DOCX_FILE)
+
+
+# ---------------------------------------------------------------------------
+# Step 5: stats
+# ---------------------------------------------------------------------------
+print('[4/4] Done.')
 doc2 = Document(DOCX_FILE)
 print(f'      Sections: {len(doc2.sections)}')
 print(f'      Paragraphs: {len(doc2.paragraphs)}')
